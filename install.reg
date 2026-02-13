@@ -1,0 +1,29 @@
+Windows Registry Editor Version 5.00
+
+; SearchOpenExe - Context Menu Registration
+; NOTE: Replace D:\\github\\SearchOpenExe\\SearchOpenExe.ps1 with the actual path to SearchOpenExe.ps1
+; Use double backslashes (\\) in paths.
+
+; --- Folder right-click ---
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\SearchOpenExe]
+@="Search Open Processes"
+"Icon"="shell32.dll,22"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\SearchOpenExe\command]
+@="powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\github\\SearchOpenExe\\SearchOpenExe.ps1\" \"%V\""
+
+; --- Folder background right-click ---
+[HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\SearchOpenExe]
+@="Search Open Processes"
+"Icon"="shell32.dll,22"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\SearchOpenExe\command]
+@="powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\github\\SearchOpenExe\\SearchOpenExe.ps1\" \"%V\""
+
+; --- File right-click ---
+[HKEY_CURRENT_USER\Software\Classes\*\shell\SearchOpenExe]
+@="Search Locking Processes"
+"Icon"="shell32.dll,22"
+
+[HKEY_CURRENT_USER\Software\Classes\*\shell\SearchOpenExe\command]
+@="powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File \"D:\\github\\SearchOpenExe\\SearchOpenExe.ps1\" \"%1\""

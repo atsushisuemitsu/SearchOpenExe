@@ -1,0 +1,9 @@
+Windows Registry Editor Version 5.00
+
+; SearchOpenExe - Remove Context Menu Entries
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\SearchOpenExe]
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\SearchOpenExe]
+
+[-HKEY_CURRENT_USER\Software\Classes\*\shell\SearchOpenExe]
