@@ -505,18 +505,19 @@ function Show-ProcessGui {
             return
         }
 
-        $pidList = @()
+        # Use $targetPid / $procName to avoid conflict with automatic variable $PID
+        $targetPids = @()
         $nameList = @()
         foreach ($row in $selectedRows) {
-            $pid = $row.Cells["PID"].Value
-            $name = $row.Cells["ProcessName"].Value
-            if ($pid -and $pid -ne "") {
-                $pidList += [int]$pid
-                $nameList += "$name (PID: $pid)"
+            $cellPid = $row.Cells["PID"].Value
+            $procName = $row.Cells["ProcessName"].Value
+            if ($cellPid -and $cellPid -ne "") {
+                $targetPids += [int]$cellPid
+                $nameList += "$procName (PID: $cellPid)"
             }
         }
 
-        if ($pidList.Count -eq 0) { return }
+        if ($targetPids.Count -eq 0) { return }
 
         $msg = "Are you sure you want to terminate the following process(es)?`n`n"
         $msg += ($nameList -join "`n")
@@ -532,24 +533,37 @@ function Show-ProcessGui {
         if ($confirm -eq [System.Windows.Forms.DialogResult]::Yes) {
             $successCount = 0
             $failCount = 0
-            foreach ($pid in $pidList) {
+            $failDetails = @()
+            foreach ($targetPid in $targetPids) {
                 try {
-                    Stop-Process -Id $pid -Force -ErrorAction Stop
-                    $successCount++
+                    Stop-Process -Id $targetPid -Force -ErrorAction Stop
+                    # Verify the process is actually gone
+                    Start-Sleep -Milliseconds 500
+                    $stillAlive = Get-Process -Id $targetPid -ErrorAction SilentlyContinue
+                    if ($stillAlive) {
+                        $failCount++
+                        $failDetails += "PID $targetPid : process still running after Stop-Process"
+                    } else {
+                        $successCount++
+                    }
                 } catch {
                     $failCount++
+                    $failDetails += "PID ${targetPid}: $($_.Exception.Message)"
                 }
             }
 
             $resultMsg = "Terminated: $successCount"
             if ($failCount -gt 0) {
-                $resultMsg += "`nFailed: $failCount (may require administrator privileges)"
+                $resultMsg += "`nFailed: $failCount"
+                $resultMsg += "`n`nDetails:`n"
+                $resultMsg += ($failDetails -join "`n")
+                $resultMsg += "`n`nTry running as Administrator for full access."
             }
             [System.Windows.Forms.MessageBox]::Show(
                 $resultMsg,
                 "Result",
                 [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Information
+                $(if ($failCount -gt 0) { [System.Windows.Forms.MessageBoxIcon]::Warning } else { [System.Windows.Forms.MessageBoxIcon]::Information })
             )
 
             # Auto-refresh after termination
