@@ -437,6 +437,7 @@ function Show-ProcessGui {
 
     # --- Refresh function ---
     $refreshData = {
+        $dgv.SuspendLayout()
         $dgv.Rows.Clear()
         $lblStatus.Text = "Searching..."
         $lblStatus.ForeColor = [System.Drawing.Color]::Gray
@@ -451,9 +452,16 @@ function Show-ProcessGui {
             $lblStatus.Text = "$($data.Count) process(es) found."
             $lblStatus.ForeColor = [System.Drawing.Color]::DarkBlue
             foreach ($item in $data) {
-                $rowIndex = $dgv.Rows.Add($item.ProcessName, $item.PID, $item.ExePath, $item.DetectionType, $item.LockedFile)
+                $idx = $dgv.Rows.Add()
+                $dgv.Rows[$idx].Cells[0].Value = [string]$item.ProcessName
+                $dgv.Rows[$idx].Cells[1].Value = [string]$item.PID
+                $dgv.Rows[$idx].Cells[2].Value = [string]$item.ExePath
+                $dgv.Rows[$idx].Cells[3].Value = [string]$item.DetectionType
+                $dgv.Rows[$idx].Cells[4].Value = [string]$item.LockedFile
             }
         }
+        $dgv.ResumeLayout()
+        $dgv.Refresh()
     }
 
     # --- Event handlers ---
