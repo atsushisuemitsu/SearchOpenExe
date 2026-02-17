@@ -361,49 +361,60 @@ function Show-ProcessGui {
     $form.Controls.Add($lblStatus)
 
     # --- DataGridView ---
-    $dgv = New-Object System.Windows.Forms.DataGridView
-    $dgv.Location = New-Object System.Drawing.Point(10, 56)
-    $dgv.Size = New-Object System.Drawing.Size(910, 410)
-    $dgv.Anchor = "Top, Bottom, Left, Right"
-    $dgv.AllowUserToAddRows = $false
-    $dgv.AllowUserToDeleteRows = $false
-    $dgv.ReadOnly = $true
-    $dgv.SelectionMode = "FullRowSelect"
-    $dgv.MultiSelect = $true
-    $dgv.AutoSizeColumnsMode = "Fill"
-    $dgv.RowHeadersVisible = $false
-    $dgv.BackgroundColor = [System.Drawing.Color]::White
-    $dgv.BorderStyle = "FixedSingle"
-    $dgv.Font = $font
+    $script:dgv = New-Object System.Windows.Forms.DataGridView
+    $script:dgv.Location = New-Object System.Drawing.Point(10, 56)
+    $script:dgv.Size = New-Object System.Drawing.Size(910, 410)
+    $script:dgv.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+    $script:dgv.AllowUserToAddRows = $false
+    $script:dgv.AllowUserToDeleteRows = $false
+    $script:dgv.ReadOnly = $true
+    $script:dgv.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
+    $script:dgv.MultiSelect = $true
+    $script:dgv.AutoGenerateColumns = $false
+    $script:dgv.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
+    $script:dgv.RowHeadersVisible = $false
+    $script:dgv.BackgroundColor = [System.Drawing.Color]::White
+    $script:dgv.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+    $script:dgv.Font = $font
+    $script:dgv.ColumnHeadersDefaultCellStyle.Font = $fontBold
 
-    # Columns
+    # Columns with DataPropertyName for DataTable binding
     $colName = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colName.HeaderText = "Process Name"
     $colName.Name = "ProcessName"
+    $colName.DataPropertyName = "ProcessName"
     $colName.FillWeight = 15
 
     $colPID = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colPID.HeaderText = "PID"
     $colPID.Name = "PID"
+    $colPID.DataPropertyName = "PID"
     $colPID.FillWeight = 8
 
     $colPath = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colPath.HeaderText = "Exe Path"
     $colPath.Name = "ExePath"
+    $colPath.DataPropertyName = "ExePath"
     $colPath.FillWeight = 30
 
     $colType = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colType.HeaderText = "Detection Type"
     $colType.Name = "DetectionType"
+    $colType.DataPropertyName = "DetectionType"
     $colType.FillWeight = 12
 
     $colLocked = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
     $colLocked.HeaderText = "Locked File / Module"
     $colLocked.Name = "LockedFile"
+    $colLocked.DataPropertyName = "LockedFile"
     $colLocked.FillWeight = 35
 
-    $dgv.Columns.AddRange(@($colName, $colPID, $colPath, $colType, $colLocked))
-    $form.Controls.Add($dgv)
+    $script:dgv.Columns.Add($colName) | Out-Null
+    $script:dgv.Columns.Add($colPID) | Out-Null
+    $script:dgv.Columns.Add($colPath) | Out-Null
+    $script:dgv.Columns.Add($colType) | Out-Null
+    $script:dgv.Columns.Add($colLocked) | Out-Null
+    $form.Controls.Add($script:dgv)
 
     # --- Button panel ---
     $panelButtons = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -436,41 +447,50 @@ function Show-ProcessGui {
     $form.Controls.Add($panelButtons)
 
     # --- Refresh function ---
-    $refreshData = {
-        $dgv.SuspendLayout()
-        $dgv.Rows.Clear()
+    $script:refreshData = {
+        $script:dgv.DataSource = $null
         $lblStatus.Text = "Searching..."
         $lblStatus.ForeColor = [System.Drawing.Color]::Gray
         $form.Refresh()
 
         $data = Get-AllProcessInfo -Path $Path -IsFile $IsFile
 
-        if ($data.Count -eq 0) {
+        # Build DataTable
+        $dt = New-Object System.Data.DataTable
+        [void]$dt.Columns.Add("ProcessName", [string])
+        [void]$dt.Columns.Add("PID", [string])
+        [void]$dt.Columns.Add("ExePath", [string])
+        [void]$dt.Columns.Add("DetectionType", [string])
+        [void]$dt.Columns.Add("LockedFile", [string])
+
+        foreach ($item in $data) {
+            [void]$dt.Rows.Add(
+                [string]$item.ProcessName,
+                [string]$item.PID,
+                [string]$item.ExePath,
+                [string]$item.DetectionType,
+                [string]$item.LockedFile
+            )
+        }
+
+        $script:dgv.DataSource = $dt
+
+        if ($dt.Rows.Count -eq 0) {
             $lblStatus.Text = "No processes found."
             $lblStatus.ForeColor = [System.Drawing.Color]::Green
         } else {
-            $lblStatus.Text = "$($data.Count) process(es) found."
+            $lblStatus.Text = "$($dt.Rows.Count) process(es) found."
             $lblStatus.ForeColor = [System.Drawing.Color]::DarkBlue
-            foreach ($item in $data) {
-                $idx = $dgv.Rows.Add()
-                $dgv.Rows[$idx].Cells[0].Value = [string]$item.ProcessName
-                $dgv.Rows[$idx].Cells[1].Value = [string]$item.PID
-                $dgv.Rows[$idx].Cells[2].Value = [string]$item.ExePath
-                $dgv.Rows[$idx].Cells[3].Value = [string]$item.DetectionType
-                $dgv.Rows[$idx].Cells[4].Value = [string]$item.LockedFile
-            }
         }
-        $dgv.ResumeLayout()
-        $dgv.Refresh()
     }
 
     # --- Event handlers ---
     $btnClose.Add_Click({ $form.Close() })
 
-    $btnRefresh.Add_Click({ & $refreshData })
+    $btnRefresh.Add_Click({ & $script:refreshData })
 
     $btnKill.Add_Click({
-        $selectedRows = $dgv.SelectedRows
+        $selectedRows = $script:dgv.SelectedRows
         if ($selectedRows.Count -eq 0) {
             [System.Windows.Forms.MessageBox]::Show(
                 "Please select one or more processes to terminate.",
@@ -529,12 +549,12 @@ function Show-ProcessGui {
             )
 
             # Auto-refresh after termination
-            & $refreshData
+            & $script:refreshData
         }
     })
 
     # --- Initial load ---
-    $form.Add_Shown({ & $refreshData })
+    $form.Add_Shown({ & $script:refreshData })
 
     # --- Show ---
     [System.Windows.Forms.Application]::EnableVisualStyles()
