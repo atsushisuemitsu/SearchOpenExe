@@ -154,10 +154,78 @@ function Get-LoadedModuleProcesses {
     return $results
 }
 
+function Get-FileLockProcesses-Single {
+    <#
+    .SYNOPSIS
+        Use Restart Manager API to find processes locking a single file.
+        Returns array of PSCustomObjects with process info.
+    #>
+    param([string]$FilePath)
+
+    $results = @()
+    $sessionHandle = [uint32]0
+    $sessionKey = [Guid]::NewGuid().ToString()
+
+    $startResult = [RestartManager]::RmStartSession([ref]$sessionHandle, 0, $sessionKey)
+    if ($startResult -ne 0) { return $results }
+
+    try {
+        $fileArray = @($FilePath)
+        $regResult = [RestartManager]::RmRegisterResources(
+            $sessionHandle,
+            [uint32]1, $fileArray,
+            0, $null,
+            0, $null
+        )
+        if ($regResult -ne 0) { return $results }
+
+        $pnProcInfoNeeded = [uint32]0
+        $pnProcInfo = [uint32]0
+        $rebootReasons = [uint32]0
+
+        # First call to get count
+        [RestartManager]::RmGetList($sessionHandle,
+            [ref]$pnProcInfoNeeded, [ref]$pnProcInfo, $null, [ref]$rebootReasons) | Out-Null
+
+        if ($pnProcInfoNeeded -gt 0) {
+            $pnProcInfo = $pnProcInfoNeeded
+            $processInfoArray = New-Object RM_PROCESS_INFO[] $pnProcInfo
+
+            $getResult = [RestartManager]::RmGetList($sessionHandle,
+                [ref]$pnProcInfoNeeded, [ref]$pnProcInfo, $processInfoArray, [ref]$rebootReasons)
+
+            if ($getResult -eq 0) {
+                foreach ($pi in $processInfoArray) {
+                    if ($pi.Process.dwProcessId -eq 0) { continue }
+                    try {
+                        $proc = Get-Process -Id $pi.Process.dwProcessId -ErrorAction SilentlyContinue
+                        $exePath = if ($proc -and $proc.Path) { $proc.Path } else { "" }
+
+                        $results += [PSCustomObject]@{
+                            ProcessName   = $pi.strAppName
+                            PID           = $pi.Process.dwProcessId
+                            ExePath       = $exePath
+                            DetectionType = "File Lock (RM)"
+                            LockedFile    = $FilePath
+                        }
+                    } catch {
+                        # Skip processes we can't access
+                    }
+                }
+            }
+        }
+    } finally {
+        [RestartManager]::RmEndSession($sessionHandle) | Out-Null
+    }
+
+    return $results
+}
+
 function Get-FileLockProcesses {
     <#
     .SYNOPSIS
         Use Restart Manager API to find processes locking files.
+        Checks each file individually to identify exactly which file is locked.
     #>
     param(
         [string]$Path,
@@ -166,88 +234,24 @@ function Get-FileLockProcesses {
 
     $results = @()
 
-    # Collect target files
     if ($IsFile) {
-        $files = @($Path)
+        $results += Get-FileLockProcesses-Single -FilePath $Path
     } else {
-        # Recursively enumerate files with a cap of 500
+        # Recursively enumerate files with a cap of 1000
         $files = @()
         try {
-            $allFiles = Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 500
-            $files = $allFiles | ForEach-Object { $_.FullName }
+            $allFiles = Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1000
+            $files = @($allFiles | ForEach-Object { $_.FullName })
         } catch {
             return $results
         }
-    }
 
-    if ($files.Count -eq 0) { return $results }
-
-    # Process files in batches of 50 for Restart Manager
-    $batchSize = 50
-    for ($i = 0; $i -lt $files.Count; $i += $batchSize) {
-        $batch = $files[$i..([Math]::Min($i + $batchSize - 1, $files.Count - 1))]
-
-        $sessionHandle = [uint32]0
-        $sessionKey = [Guid]::NewGuid().ToString()
-
-        $startResult = [RestartManager]::RmStartSession([ref]$sessionHandle, 0, $sessionKey)
-        if ($startResult -ne 0) { continue }
-
-        try {
-            $regResult = [RestartManager]::RmRegisterResources(
-                $sessionHandle,
-                [uint32]$batch.Count, $batch,
-                0, $null,
-                0, $null
-            )
-            if ($regResult -ne 0) { continue }
-
-            $pnProcInfoNeeded = [uint32]0
-            $pnProcInfo = [uint32]0
-            $rebootReasons = [uint32]0
-
-            # First call to get count
-            $getResult = [RestartManager]::RmGetList($sessionHandle,
-                [ref]$pnProcInfoNeeded, [ref]$pnProcInfo, $null, [ref]$rebootReasons)
-
-            if ($pnProcInfoNeeded -gt 0) {
-                $pnProcInfo = $pnProcInfoNeeded
-                $processInfoArray = New-Object RM_PROCESS_INFO[] $pnProcInfo
-
-                $getResult = [RestartManager]::RmGetList($sessionHandle,
-                    [ref]$pnProcInfoNeeded, [ref]$pnProcInfo, $processInfoArray, [ref]$rebootReasons)
-
-                if ($getResult -eq 0) {
-                    foreach ($pi in $processInfoArray) {
-                        if ($pi.Process.dwProcessId -eq 0) { continue }
-                        try {
-                            $proc = Get-Process -Id $pi.Process.dwProcessId -ErrorAction SilentlyContinue
-                            $exePath = if ($proc -and $proc.Path) { $proc.Path } else { "" }
-
-                            # Determine which file(s) in this batch are locked by this process
-                            $lockedFileStr = if ($IsFile) { $Path } else {
-                                ($batch | Where-Object { $_ }) -join "; "
-                            }
-                            # For folder mode, we note the batch (exact file identification requires per-file RM calls)
-                            if (-not $IsFile -and $batch.Count -gt 1) {
-                                $lockedFileStr = "(files in batch $([Math]::Floor($i/$batchSize)+1))"
-                            }
-
-                            $results += [PSCustomObject]@{
-                                ProcessName   = $pi.strAppName
-                                PID           = $pi.Process.dwProcessId
-                                ExePath       = $exePath
-                                DetectionType = "File Lock (RM)"
-                                LockedFile    = $lockedFileStr
-                            }
-                        } catch {
-                            # Skip processes we can't access
-                        }
-                    }
-                }
+        # Check each file individually so we know exactly which file is locked
+        foreach ($file in $files) {
+            $fileResults = Get-FileLockProcesses-Single -FilePath $file
+            if ($fileResults) {
+                $results += $fileResults
             }
-        } finally {
-            [RestartManager]::RmEndSession($sessionHandle) | Out-Null
         }
     }
 
